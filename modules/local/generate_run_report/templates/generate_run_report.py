@@ -1218,11 +1218,15 @@ for row in scheme_samplesheet_df.itertuples():
                     "mean_depth": 0.0,
                 }
             )
-
-amplicon_depth_rows = sorted(
-    amplicon_depth_rows,
-    key=lambda x: (x["sample"], x["chrom"], x["amplicon"]),
-)
+#fix sort mix type bug -- josh 20260804
+try:
+    amplicon_depth_rows = sorted(
+        amplicon_depth_rows,
+        key=lambda x: (str(x["sample"]), str(x["chrom"]), int(x["amplicon"])),
+    )
+except:
+    #just do nothing for the sort, to see what will happen
+    print(amplicon_depth_rows)
 
 # Sort the qc table info by sample name
 payload["qc_table_info"] = dict(
