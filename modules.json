@@ -7,7 +7,7 @@
                 "nf-core": {
                     "artic/aligntrim": {
                         "branch": "master",
-                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "git_sha": "1c2df6eda26829e3025cb5a98a344a18ac55a706",
                         "installed_by": ["modules"]
                     },
                     "artic/guppyplex": {
@@ -44,6 +44,15 @@
                     "csvtk/concat": {
                         "branch": "master",
                         "git_sha": "e753770db613ce014b3c4bc94f6cba443427b726",
+                    },
+                    "fastp": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "installed_by": ["modules"]
+                    },
+                    "fastqc": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
                         "installed_by": ["modules"]
                     },
                     "find/concatenate": {
@@ -98,11 +107,6 @@
                         "installed_by": ["modules"],
                         "patch": "modules/nf-core/samtools/coverage/samtools-coverage.diff"
                     },
-                    "samtools/depth": {
-                        "branch": "master",
-                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
-                        "installed_by": ["modules"]
-                    },
                     "samtools/faidx": {
                         "branch": "master",
                         "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
@@ -135,11 +139,6 @@
                         "installed_by": ["modules"]
                     },
                     "tabix/bgziptabix": {
-                        "branch": "master",
-                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
-                        "installed_by": ["modules"]
-                    },
-                    "trimmomatic": {
                         "branch": "master",
                         "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
                         "installed_by": ["modules"]

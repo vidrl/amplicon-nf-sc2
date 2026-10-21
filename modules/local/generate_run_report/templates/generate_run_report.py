@@ -413,9 +413,9 @@ def remove_end_insertion(msa_array: np.ndarray) -> np.ndarray:
     """
     tmp_array = msa_array
     ncols = tmp_array.shape[1]
-    for row_index in range(0, tmp_array.shape[0]):
+    for row_index in range(tmp_array.shape[0]):
         # Solves the 5' end
-        for col_index in range(0, ncols):
+        for col_index in range(ncols):
             if tmp_array[row_index, col_index] == "-":
                 tmp_array[row_index, col_index] = ""
             else:
@@ -479,7 +479,7 @@ def parse_msa(msa_path: pathlib.Path) -> tuple[np.ndarray, dict]:
 
     empty_col_indexes = []
     # Check for empty columns and non DNA characters
-    for col_index in range(0, array.shape[1]):
+    for col_index in range(array.shape[1]):
         slice: set[str] = set(array[:, col_index])
         # Check for empty columns
         if slice.issubset(empty_set):
@@ -1052,18 +1052,16 @@ else:
         )
     ]
 
-depth_tsvs = glob("depth_tsvs/*.tsv")
-for tsv_path in depth_tsvs:
+pre_norm_tsvs = glob("pre_norm_tsvs/*.tsv")
+for tsv_path in pre_norm_tsvs:
     sample_name = tsv_path.split("/")[-1].split(".")[0]
     payload["qc_table_info"].setdefault(sample_name, {})
-    df = pd.read_csv(
-        tsv_path, sep="\t", index_col=None, names=["chrom", "pos", "depth"]
-    )
-    payload["qc_table_info"][sample_name]["mean_depth"] = (
+    df = pd.read_csv(tsv_path, sep="\t", index_col=None)
+    payload["qc_table_info"][sample_name]["pre_norm_mean_depth"] = (
         round(df["depth"].mean(), 2) if len(df) > 0 else 0.0
     )
     payload["qc_table_info"][sample_name]["primer_scheme"] = scheme_version_str
-    payload["qc_table_info"][sample_name]["coverage"] = (
+    payload["qc_table_info"][sample_name]["pre_norm_coverage"] = (
         round(
             len(df[df["depth"] >= int("${params.min_coverage_depth}")]) / len(df) * 100,
             2,
@@ -1071,16 +1069,32 @@ for tsv_path in depth_tsvs:
         if len(df) > 0
         else 0.0
     )
-    if payload["qc_table_info"][sample_name]["coverage"] >= int(
-        "${params.qc_pass_high_coverage}"
-    ):
+    coverage_for_qc = payload["qc_table_info"][sample_name]["pre_norm_coverage"]
+    if coverage_for_qc >= int("${params.qc_pass_high_coverage}"):
         payload["qc_table_info"][sample_name]["qc_result"] = "pass"
-    elif payload["qc_table_info"][sample_name]["coverage"] >= int(
-        "${params.qc_pass_min_coverage}"
-    ):
+    elif coverage_for_qc >= int("${params.qc_pass_min_coverage}"):
         payload["qc_table_info"][sample_name]["qc_result"] = "warning"
     else:
         payload["qc_table_info"][sample_name]["qc_result"] = "fail"
+
+post_norm_tsvs = glob("post_norm_tsvs/*.tsv")
+for tsv_path in post_norm_tsvs:
+    sample_name = tsv_path.split("/")[-1].split(".")[0]
+    payload["qc_table_info"].setdefault(sample_name, {})
+    df = pd.read_csv(tsv_path, sep="\t", index_col=None)
+    payload["qc_table_info"][sample_name]["post_norm_mean_depth"] = (
+        round(df["depth"].mean(), 2) if len(df) > 0 else 0.0
+    )
+    payload["qc_table_info"][sample_name]["post_norm_coverage"] = (
+        round(
+            len(df[df["depth"] >= int("${params.min_coverage_depth}")]) / len(df) * 100,
+            2,
+        )
+        if len(df) > 0
+        else 0.0
+    )
+
+has_post_norm = len(post_norm_tsvs) > 0
 
 coverage_tsvs = glob("coverage_tsvs/*.txt")
 for tsv_path in coverage_tsvs:
@@ -1202,8 +1216,11 @@ for row in scheme_samplesheet_df.itertuples():
         samples.add(row.sample)
         payload["qc_table_info"].setdefault(row.sample, {})
         payload["qc_table_info"][row.sample]["primer_scheme"] = scheme_version_str
-        payload["qc_table_info"][row.sample]["coverage"] = 0.0
-        payload["qc_table_info"][row.sample]["mean_depth"] = 0.0
+        payload["qc_table_info"][row.sample]["pre_norm_coverage"] = 0.0
+        payload["qc_table_info"][row.sample]["pre_norm_mean_depth"] = 0.0
+        if has_post_norm:
+            payload["qc_table_info"][row.sample]["post_norm_coverage"] = 0.0
+            payload["qc_table_info"][row.sample]["post_norm_mean_depth"] = 0.0
         payload["qc_table_info"][row.sample]["total_reads"] = 0
         payload["qc_table_info"][row.sample]["total_amp_dropouts"] = len(primer_pairs)
         payload["qc_table_info"][row.sample]["qc_result"] = "fail"
@@ -1232,19 +1249,22 @@ payload["qc_table_info"] = dict(
     )
 )
 
+qc_fieldnames = [
+    "sample",
+    "primer_scheme",
+    "pre_norm_coverage",
+    "pre_norm_mean_depth",
+]
+if has_post_norm:
+    qc_fieldnames += ["post_norm_coverage", "post_norm_mean_depth"]
+qc_fieldnames += ["total_reads", "total_amp_dropouts", "qc_result"]
+
 with open(f"{scheme_version_str.replace('/', '_')}_qc_results.tsv", "w") as f:
     writer = csv.DictWriter(
         f,
-        fieldnames=[
-            "sample",
-            "primer_scheme",
-            "coverage",
-            "mean_depth",
-            "total_reads",
-            "total_amp_dropouts",
-            "qc_result",
-        ],
+        fieldnames=qc_fieldnames,
         delimiter="\t",
+        extrasaction="ignore",
     )
     writer.writeheader()
     for sample, row in payload["qc_table_info"].items():
@@ -1311,6 +1331,8 @@ if coverage_data.exists():
         ncols=3,  # how many columns per page
     )
 
+payload["has_post_norm"] = has_post_norm
+
 render_qc_report(
     payload=payload,
     template_path=Path("${report_template}"),
@@ -1325,5 +1347,7 @@ render_qc_report(
 
 with open("versions.yml", "w") as f:
     f.write("${task.process}:\\n")
-    for package in ("plotly", "primalbedtools", "pandas", "jinja2"):
-        f.write(f"  {package}: {version(package)}\\n")
+    f.writelines(
+        f"  {package}: {version(package)}\\n"
+        for package in ("plotly", "primalbedtools", "pandas", "jinja2")
+    )

@@ -14,7 +14,6 @@ include { ILLUMINA_ASSEMBLY                         } from '../subworkflows/loca
 include { RUN_NEXTCLADE                             } from '../subworkflows/local/run_nextclade/main'
 include { RUN_PANGOLIN                              } from "../subworkflows/local/run_pangolin/main"
 
-include { SAMTOOLS_DEPTH                            } from '../modules/nf-core/samtools/depth/main'
 include { SAMTOOLS_COVERAGE                         } from '../modules/nf-core/samtools/coverage/main'
 include { SEQKIT_REPLACE as SEQKIT_REPLACE_ONT      } from '../modules/nf-core/seqkit/replace/main'
 include { SEQKIT_REPLACE as SEQKIT_REPLACE_ILLUMINA } from '../modules/nf-core/seqkit/replace/main'
@@ -148,7 +147,6 @@ workflow AMPLICON_NF {
     //
     // Generate virus assemblies
     //    
-
     ONT_ASSEMBLY(
         ch_nanopore_input,
         ch_store_directory,
@@ -163,6 +161,10 @@ workflow AMPLICON_NF {
 
     SEQKIT_REPLACE_ILLUMINA(ILLUMINA_ASSEMBLY.out.consensus_fasta)
 
+    ch_multiqc_files = ch_multiqc_files.mix(ILLUMINA_ASSEMBLY.out.fastp_json.map { _meta, json -> json })
+    ch_multiqc_files = ch_multiqc_files.mix(ILLUMINA_ASSEMBLY.out.fastqc_raw_zip.map { _meta, zip -> zip })
+    ch_multiqc_files = ch_multiqc_files.mix(ILLUMINA_ASSEMBLY.out.fastqc_trim_zip.map { _meta, zip -> zip })
+
     ch_reheadered_consensus_fasta = SEQKIT_REPLACE_ILLUMINA.out.fastx.mix(
         SEQKIT_REPLACE_ONT.out.fastx
     )
@@ -176,12 +178,13 @@ workflow AMPLICON_NF {
         ch_versions = ch_versions.mix(RUN_NEXTCLADE.out.versions)
 
         ch_nextclade_tsv = RUN_NEXTCLADE.out.tsv
-            .map {meta, tsv ->
-            [
+            .map { meta, tsv ->
+                [
                     meta.subMap("scheme", "custom_scheme", "custom_scheme_name"),
                     tsv,
-            ]
-        }.groupTuple()
+                ]
+            }
+            .groupTuple()
     }
 
     if (params.pangolin) {
@@ -224,17 +227,25 @@ workflow AMPLICON_NF {
         ch_wf_plots_summary_scheme = WF_AMPLICON_DEPTHS.out.read_summary
             .map {meta, tsv -> [meta.subMap("scheme", "custom_scheme", "custom_scheme_name"), tsv]}
     }
+    ch_pre_norm_coverage = ONT_ASSEMBLY.out.pre_normalisation_coverage.mix(
+        ILLUMINA_ASSEMBLY.out.pre_normalisation_coverage
+    )
 
+    ch_post_norm_coverage = ONT_ASSEMBLY.out.post_normalisation_coverage.mix(
+        ILLUMINA_ASSEMBLY.out.post_normalisation_coverage
+    )
 
     SAMTOOLS_COVERAGE(ch_primertrimmed_bam, [[:], [], []])
 
-    SAMTOOLS_DEPTH(ch_primertrimmed_bam, [[:], []])
-
     ch_sample_report_input = ch_primer_scheme
         .map { meta, bed, _ref -> [meta, bed] }
-        .join(SAMTOOLS_DEPTH.out.tsv)
+        .join(ch_pre_norm_coverage)
+        .join(ch_post_norm_coverage, remainder: true)
         .join(ch_amp_depth_tsv)
         .join(SAMTOOLS_COVERAGE.out.coverage)
+        .map { meta, bed, pre_norm, post_norm, amp_depth, coverage ->
+            [meta, bed, pre_norm, post_norm ?: [], amp_depth, coverage]
+        }
 
     sample_report_template = file(
         "${projectDir}/assets/sample_report_template.html",
@@ -336,7 +347,11 @@ workflow AMPLICON_NF {
         .map { meta, tsv -> [meta.subMap("scheme", "custom_scheme", "custom_scheme_name"), tsv] }
         .groupTuple()
 
-    ch_depth_tsvs_by_scheme = SAMTOOLS_DEPTH.out.tsv
+    ch_pre_norm_tsvs_by_scheme = ch_pre_norm_coverage
+        .map { meta, tsv -> [meta.subMap("scheme", "custom_scheme", "custom_scheme_name"), tsv] }
+        .groupTuple()
+
+    ch_post_norm_tsvs_by_scheme = ch_post_norm_coverage
         .map { meta, tsv -> [meta.subMap("scheme", "custom_scheme", "custom_scheme_name"), tsv] }
         .groupTuple()
 
@@ -352,23 +367,24 @@ workflow AMPLICON_NF {
     ch_wf_artic_summary_opt = params.wf_artic_plots ? ch_wf_plots_summary_scheme : channel.empty()
     ch_nextclade_opt  = params.nextclade ? ch_nextclade_tsv :  channel.empty()
     ch_pangolin_opt  = params.pangolin ? ch_pangolin_csv :  channel.empty()
+    ch_post_norm_opt = params.normalise_depth ? ch_post_norm_tsvs_by_scheme : channel.empty()
 
     ch_run_report_input = ch_bed_by_scheme
-        // required
-        .join(ch_depth_tsvs_by_scheme)
+        .join(ch_pre_norm_tsvs_by_scheme)
         .join(ch_amp_depth_tsvs_by_scheme)
         .join(ch_coverage_tsvs_by_scheme)
-        // optional
+        .join(ch_post_norm_opt, remainder: true)
         .join(ch_msas_opt, remainder: true)
         .join(ch_nextclade_opt, remainder: true)
         .join(ch_pangolin_opt, remainder: true)
         .join(ch_wf_artic_bed_opt, remainder: true)
         .join(ch_wf_artic_summary_opt, remainder: true)
-        .map { meta, bed, depth, amp, cov, msas, nc, pg, wfabed, wfasum ->
+        .map { meta, bed, pre_norm, amp, cov, post_norm, msas, nc, pg, wfabed, wfasum ->
             [
                 meta,
                 bed,
-                depth,
+                pre_norm,
+                post_norm ?: [],
                 amp,
                 cov,
                 msas ?: [],
