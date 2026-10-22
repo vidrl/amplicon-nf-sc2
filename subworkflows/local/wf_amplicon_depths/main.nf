@@ -1,5 +1,6 @@
 include { FASTCAT } from '../../../modules/local/fastcat/main'
 include { CSVTK_CONCAT as CONCAT_SUMMARY } from '../../../modules/nf-core/csvtk/concat/main'
+include { CSVTK_CONCAT as CONCAT_PERFILE } from '../../../modules/nf-core/csvtk/concat/main'
 include { CSVTK_CONCAT as CONCAT_DEPTH } from '../../../modules/nf-core/csvtk/concat/main'
 include { POOLDEPTH } from "../../../modules/local/pooldepth/main"
 
@@ -13,14 +14,23 @@ workflow WF_AMPLICON_DEPTHS {
     main:
 
     FASTCAT(ch_reads)
-    fastcat_collected = FASTCAT.out.read
+    fastcat_summary_collected = FASTCAT.out.read
         .map { meta, msa ->
             [
                 [id: 'all'] + meta.subMap("scheme", "custom_scheme", "custom_scheme_name"),
                 msa,
             ]
         }.groupTuple()
-    CONCAT_SUMMARY(fastcat_collected, "tsv", "tsv")
+    CONCAT_SUMMARY(fastcat_summary_collected, "tsv", "tsv")
+
+    fastcat_perfile_collected = FASTCAT.out.perfile
+        .map { meta, msa ->
+            [
+                [id: 'total-reads'] + meta.subMap("scheme", "custom_scheme", "custom_scheme_name"),
+                msa,
+            ]
+        }.groupTuple()
+    CONCAT_PERFILE(fastcat_perfile_collected, "tsv", "tsv")
 
     POOLDEPTH(ch_bam_bai, pools, window)
     depth_collected = POOLDEPTH.out.tsv
@@ -34,5 +44,6 @@ workflow WF_AMPLICON_DEPTHS {
 
     emit:
     read_summary = CONCAT_SUMMARY.out.csv
+    perfile = CONCAT_PERFILE.out.csv
     bed = CONCAT_DEPTH.out.csv
 }
