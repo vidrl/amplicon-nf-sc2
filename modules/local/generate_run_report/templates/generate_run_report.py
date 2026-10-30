@@ -190,13 +190,17 @@ def wf_coverage_plots(
         raise ValueError(f"Error loading bed file {bed_path}; check format")
     df["pos"] = (df["start"] + df["end"]) / 2
 
-    samples = sorted(df["sample"].unique())
+    # handle sorting mixed types
+    kind = pd.api.types.infer_dtype(df["sample"], skipna=True)
+    if kind in ("integer", "floating", "string"):
+        samples = sorted(df["sample"].unique())
+    else:
+        samples = sorted(df["sample"].astype(str).unique())
+
     nplots = len(samples)
     nrows = (nplots + ncols - 1) // ncols
 
     # making the vertical spacing dynamic instead of fix
-    # josh 20260706
-
     if nrows > 1:
         max_spacing = 1 / (nrows - 1)
         dynamic_v_spacing = max_spacing * 0.2
